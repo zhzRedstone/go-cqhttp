@@ -10,11 +10,27 @@ import (
 	"io/ioutil"
 	"path"
 	"strconv"
+	"strings"
 	"time"
 )
 
+var format = "string"
+
+func SetMessageFormat(f string) {
+	format = f
+}
+
+func ToFormattedMessage(e []message.IMessageElement, code int64, raw ...bool) (r interface{}) {
+	if format == "string" {
+		r = ToStringMessage(e, code, raw...)
+	} else if format == "array" {
+		r = ToArrayMessage(e, code, raw...)
+	}
+	return
+}
+
 func (bot *CQBot) privateMessageEvent(c *client.QQClient, m *message.PrivateMessage) {
-	checkImage(m.Elements)
+	checkMedia(m.Elements)
 	cqm := ToStringMessage(m.Elements, 0, true)
 	log.Infof("收到好友 %v(%v) 的消息: %v", m.Sender.DisplayName(), m.Sender.Uin, cqm)
 	fm := MSG{
@@ -23,7 +39,7 @@ func (bot *CQBot) privateMessageEvent(c *client.QQClient, m *message.PrivateMess
 		"sub_type":     "friend",
 		"message_id":   ToGlobalId(m.Sender.Uin, m.Id),
 		"user_id":      m.Sender.Uin,
-		"message":      ToStringMessage(m.Elements, 0, false),
+		"message":      ToFormattedMessage(m.Elements, 0, false),
 		"raw_message":  cqm,
 		"font":         0,
 		"self_id":      c.Uin,
@@ -39,7 +55,7 @@ func (bot *CQBot) privateMessageEvent(c *client.QQClient, m *message.PrivateMess
 }
 
 func (bot *CQBot) groupMessageEvent(c *client.QQClient, m *message.GroupMessage) {
-	checkImage(m.Elements)
+	checkMedia(m.Elements)
 	for _, elem := range m.Elements {
 		if file, ok := elem.(*message.GroupFileElement); ok {
 			log.Infof("群 %v(%v) 内 %v(%v) 上传了文件: %v", m.GroupName, m.GroupCode, m.Sender.DisplayName(), m.Sender.Uin, file.Name)
@@ -71,7 +87,7 @@ func (bot *CQBot) groupMessageEvent(c *client.QQClient, m *message.GroupMessage)
 		"anonymous":    nil,
 		"font":         0,
 		"group_id":     m.GroupCode,
-		"message":      ToStringMessage(m.Elements, m.GroupCode, false),
+		"message":      ToFormattedMessage(m.Elements, m.GroupCode, false),
 		"message_id":   id,
 		"message_type": "group",
 		"post_type":    "message",
@@ -117,8 +133,9 @@ func (bot *CQBot) groupMessageEvent(c *client.QQClient, m *message.GroupMessage)
 }
 
 func (bot *CQBot) tempMessageEvent(c *client.QQClient, m *message.TempMessage) {
-	checkImage(m.Elements)
+	checkMedia(m.Elements)
 	cqm := ToStringMessage(m.Elements, 0, true)
+	bot.tempMsgCache.Store(m.Sender.Uin, m.GroupCode)
 	log.Infof("收到来自群 %v(%v) 内 %v(%v) 的临时会话消息: %v", m.GroupName, m.GroupCode, m.Sender.DisplayName(), m.Sender.Uin, cqm)
 	tm := MSG{
 		"post_type":    "message",
@@ -126,7 +143,7 @@ func (bot *CQBot) tempMessageEvent(c *client.QQClient, m *message.TempMessage) {
 		"sub_type":     "group",
 		"message_id":   m.Id,
 		"user_id":      m.Sender.Uin,
-		"message":      ToStringMessage(m.Elements, 0, false),
+		"message":      ToFormattedMessage(m.Elements, 0, false),
 		"raw_message":  cqm,
 		"font":         0,
 		"self_id":      c.Uin,
@@ -260,6 +277,18 @@ func (bot *CQBot) friendRequestEvent(c *client.QQClient, e *client.NewFriendRequ
 	})
 }
 
+func (bot *CQBot) friendAddedEvent(c *client.QQClient, e *client.NewFriendEvent) {
+	log.Infof("添加了新好友: %v(%v)", e.Friend.Nickname, e.Friend.Uin)
+	bot.tempMsgCache.Delete(e.Friend.Uin)
+	bot.dispatchEventMessage(MSG{
+		"post_type":   "notice",
+		"notice_type": "friend_add",
+		"self_id":     c.Uin,
+		"user_id":     e.Friend.Uin,
+		"time":        time.Now().Unix(),
+	})
+}
+
 func (bot *CQBot) groupInvitedEvent(c *client.QQClient, e *client.GroupInvitedRequest) {
 	log.Infof("收到来自群 %v(%v) 内用户 %v(%v) 的加群邀请.", e.GroupName, e.GroupCode, e.InvitorNick, e.InvitorUin)
 	flag := strconv.FormatInt(e.RequestId, 10)
@@ -278,7 +307,7 @@ func (bot *CQBot) groupInvitedEvent(c *client.QQClient, e *client.GroupInvitedRe
 }
 
 func (bot *CQBot) groupJoinReqEvent(c *client.QQClient, e *client.UserJoinGroupRequest) {
-	log.Infof("群 %v(%v) 收到来自用户 %v(%v) 的加群请求.", e.GroupName, e.GroupName, e.RequesterNick, e.RequesterUin)
+	log.Infof("群 %v(%v) 收到来自用户 %v(%v) 的加群请求.", e.GroupName, e.GroupCode, e.RequesterNick, e.RequesterUin)
 	flag := strconv.FormatInt(e.RequestId, 10)
 	bot.joinReqCache.Store(flag, e)
 	bot.dispatchEventMessage(MSG{
@@ -287,7 +316,7 @@ func (bot *CQBot) groupJoinReqEvent(c *client.QQClient, e *client.UserJoinGroupR
 		"sub_type":     "add",
 		"group_id":     e.GroupCode,
 		"user_id":      e.RequesterUin,
-		"comment":      "",
+		"comment":      e.Message,
 		"flag":         flag,
 		"time":         time.Now().Unix(),
 		"self_id":      c.Uin,
@@ -333,9 +362,10 @@ func (bot *CQBot) groupDecrease(groupCode, userUin int64, operator *client.Group
 	}
 }
 
-func checkImage(e []message.IMessageElement) {
+func checkMedia(e []message.IMessageElement) {
 	for _, elem := range e {
-		if i, ok := elem.(*message.ImageElement); ok {
+		switch i := elem.(type) {
+		case *message.ImageElement:
 			filename := hex.EncodeToString(i.Md5) + ".image"
 			if !global.PathExists(path.Join(global.IMAGE_PATH, filename)) {
 				_ = ioutil.WriteFile(path.Join(global.IMAGE_PATH, filename), binary.NewWriterF(func(w *binary.Writer) {
@@ -346,6 +376,17 @@ func checkImage(e []message.IMessageElement) {
 				}), 0777)
 			}
 			i.Filename = filename
+		case *message.VoiceElement:
+			i.Name = strings.ReplaceAll(i.Name, "{", "")
+			i.Name = strings.ReplaceAll(i.Name, "}", "")
+			if !global.PathExists(path.Join(global.VOICE_PATH, i.Name)) {
+				b, err := global.GetBytes(i.Url)
+				if err != nil {
+					log.Warnf("语音文件 %v 下载失败: %v", i.Name, err)
+					continue
+				}
+				_ = ioutil.WriteFile(path.Join(global.VOICE_PATH, i.Name), b, 0777)
+			}
 		}
 	}
 }

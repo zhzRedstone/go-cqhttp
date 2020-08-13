@@ -4,14 +4,15 @@ import (
 	"crypto/hmac"
 	"crypto/sha1"
 	"encoding/hex"
+	"strconv"
+	"strings"
+	"time"
+
 	"github.com/Mrs4s/go-cqhttp/coolq"
 	"github.com/gin-gonic/gin"
 	"github.com/guonaihong/gout"
 	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
-	"strconv"
-	"strings"
-	"time"
 )
 
 type httpServer struct {
@@ -20,9 +21,10 @@ type httpServer struct {
 }
 
 type httpClient struct {
-	bot    *coolq.CQBot
-	secret string
-	addr   string
+	bot     *coolq.CQBot
+	secret  string
+	addr    string
+	timeout int32
 }
 
 var HttpServer = &httpServer{}
@@ -61,12 +63,12 @@ func (s *httpServer) Run(addr, authToken string, bot *coolq.CQBot) {
 					c.AbortWithStatus(401)
 					return
 				}
-			}
-			if c.Query("access_token") != authToken {
+			} else if c.Query("access_token") != authToken {
 				c.AbortWithStatus(401)
 				return
+			} else {
+				c.Next()
 			}
-			c.Next()
 		})
 	}
 
@@ -162,10 +164,14 @@ func NewHttpClient() *httpClient {
 	return &httpClient{}
 }
 
-func (c *httpClient) Run(addr, secret string, bot *coolq.CQBot) {
+func (c *httpClient) Run(addr, secret string, timeout int32, bot *coolq.CQBot) {
 	c.bot = bot
 	c.secret = secret
 	c.addr = addr
+	c.timeout = timeout
+	if c.timeout < 5 {
+		c.timeout = 5
+	}
 	bot.OnEventPush(c.onBotPushEvent)
 	log.Infof("HTTP POST上报器已启动: %v", addr)
 }
@@ -183,7 +189,7 @@ func (c *httpClient) onBotPushEvent(m coolq.MSG) {
 			h["X-Signature"] = "sha1=" + hex.EncodeToString(mac.Sum(nil))
 		}
 		return h
-	}()).SetTimeout(time.Second * 5).Do()
+	}()).SetTimeout(time.Second * time.Duration(c.timeout)).Do()
 	if err != nil {
 		log.Warnf("上报Event数据到 %v 失败: %v", c.addr, err)
 		return
@@ -223,6 +229,14 @@ func (s *httpServer) GetGroupMemberInfo(c *gin.Context) {
 }
 
 func (s *httpServer) SendMessage(c *gin.Context) {
+	if getParam(c, "message_type") == "private" {
+		s.SendPrivateMessage(c)
+		return
+	}
+	if getParam(c, "message_type") == "group" {
+		s.SendGroupMessage(c)
+		return
+	}
 	if getParam(c, "group_id") != "" {
 		s.SendGroupMessage(c)
 		return
@@ -234,8 +248,8 @@ func (s *httpServer) SendMessage(c *gin.Context) {
 
 func (s *httpServer) SendPrivateMessage(c *gin.Context) {
 	uid, _ := strconv.ParseInt(getParam(c, "user_id"), 10, 64)
-	msg := getParam(c, "message")
-	if gjson.Valid(msg) {
+	msg, t := getParamWithType(c, "message")
+	if t == gjson.JSON {
 		c.JSON(200, s.bot.CQSendPrivateMessage(uid, gjson.Parse(msg)))
 		return
 	}
@@ -244,8 +258,8 @@ func (s *httpServer) SendPrivateMessage(c *gin.Context) {
 
 func (s *httpServer) SendGroupMessage(c *gin.Context) {
 	gid, _ := strconv.ParseInt(getParam(c, "group_id"), 10, 64)
-	msg := getParam(c, "message")
-	if gjson.Valid(msg) {
+	msg, t := getParamWithType(c, "message")
+	if t == gjson.JSON {
 		c.JSON(200, s.bot.CQSendGroupMessage(gid, gjson.Parse(msg)))
 		return
 	}
@@ -371,14 +385,19 @@ func getParamOrDefault(c *gin.Context, k, def string) string {
 }
 
 func getParam(c *gin.Context, k string) string {
+	p, _ := getParamWithType(c, k)
+	return p
+}
+
+func getParamWithType(c *gin.Context, k string) (string, gjson.Type) {
 	if q := c.Query(k); q != "" {
-		return q
+		return q, gjson.Null
 	}
 	if c.Request.Method == "POST" {
 		if h := c.Request.Header.Get("Content-Type"); h != "" {
 			if h == "application/x-www-form-urlencoded" {
 				if p, ok := c.GetPostForm(k); ok {
-					return p
+					return p, gjson.Null
 				}
 			}
 			if h == "application/json" {
@@ -387,20 +406,20 @@ func getParam(c *gin.Context, k string) string {
 					if res.Exists() {
 						switch res.Type {
 						case gjson.JSON:
-							return res.Raw
+							return res.Raw, gjson.JSON
 						case gjson.String:
-							return res.Str
+							return res.Str, gjson.String
 						case gjson.Number:
-							return strconv.FormatInt(res.Int(), 10) // 似乎没有需要接受 float 类型的api
+							return strconv.FormatInt(res.Int(), 10), gjson.Number // 似乎没有需要接受 float 类型的api
 						case gjson.True:
-							return "true"
+							return "true", gjson.True
 						case gjson.False:
-							return "false"
+							return "false", gjson.False
 						}
 					}
 				}
 			}
 		}
 	}
-	return ""
+	return "", gjson.Null
 }

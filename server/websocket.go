@@ -64,14 +64,15 @@ func (c *websocketClient) Run() {
 	if !c.conf.Enabled {
 		return
 	}
-	if c.conf.ReverseApiUrl != "" {
-		c.connectApi()
-	}
-	if c.conf.ReverseEventUrl != "" {
-		c.connectEvent()
-	}
 	if c.conf.ReverseUrl != "" {
 		c.connectUniversal()
+	} else {
+		if c.conf.ReverseApiUrl != "" {
+			c.connectApi()
+		}
+		if c.conf.ReverseEventUrl != "" {
+			c.connectEvent()
+		}
 	}
 	c.bot.OnEventPush(c.onBotPushEvent)
 }
@@ -171,6 +172,7 @@ func (c *websocketClient) listenApi(conn *wsc.Conn, u bool) {
 				ret["echo"] = j.Get("echo").Value()
 			}
 			c.pushLock.Lock()
+			log.Debugf("准备发送API %v 处理结果: %v", t, ret.ToJson())
 			_, _ = conn.Write([]byte(ret.ToJson()))
 			c.pushLock.Unlock()
 		}
@@ -193,8 +195,10 @@ func (c *websocketClient) onBotPushEvent(m coolq.MSG) {
 		if _, err := c.eventConn.Write([]byte(m.ToJson())); err != nil {
 			_ = c.eventConn.Close()
 			if c.conf.ReverseReconnectInterval != 0 {
-				time.Sleep(time.Millisecond * time.Duration(c.conf.ReverseReconnectInterval))
-				c.connectEvent()
+				go func() {
+					time.Sleep(time.Millisecond * time.Duration(c.conf.ReverseReconnectInterval))
+					c.connectEvent()
+				}()
 			}
 		}
 	}
@@ -327,6 +331,12 @@ var wsApi = map[string]func(*coolq.CQBot, gjson.Result) coolq.MSG{
 		)
 	},
 	"send_msg": func(bot *coolq.CQBot, p gjson.Result) coolq.MSG {
+		if p.Get("message_type").Str == "private" {
+			return bot.CQSendPrivateMessage(p.Get("user_id").Int(), p.Get("message"))
+		}
+		if p.Get("message_type").Str == "group" {
+			return bot.CQSendGroupMessage(p.Get("group_id").Int(), p.Get("message"))
+		}
 		if p.Get("group_id").Int() != 0 {
 			return bot.CQSendGroupMessage(p.Get("group_id").Int(), p.Get("message"))
 		}
