@@ -85,7 +85,7 @@ func (bot *CQBot) GetGroupMessage(mid int32) MSG {
 		if err == nil {
 			return m
 		}
-		log.Warnf("获取信息时出现错误: %v", err)
+		log.Warnf("获取信息时出现错误: %v id: %v", err, mid)
 	}
 	return nil
 }
@@ -94,7 +94,7 @@ func (bot *CQBot) SendGroupMessage(groupId int64, m *message.SendingMessage) int
 	var newElem []message.IMessageElement
 	for _, elem := range m.Elements {
 		if i, ok := elem.(*message.ImageElement); ok {
-			gm, err := bot.Client.UploadGroupImage(groupId, i.Data)
+			gm, err := bot.Client.UploadGroupImage(114514, i.Data)
 			if err != nil {
 				log.Warnf("警告: 群 %v 消息图片上传失败: %v", groupId, err)
 				continue
@@ -191,7 +191,7 @@ func (bot *CQBot) dispatchEventMessage(m MSG) {
 			fn(m)
 			end := time.Now()
 			if end.Sub(start) > time.Second*5 {
-				log.Debugf("警告: 事件处理耗时超过 5 秒 (%v秒), 请检查应用是否有堵塞.", end.Sub(start)/time.Second)
+				log.Debugf("警告: 事件处理耗时超过 5 秒 (%v), 请检查应用是否有堵塞.", end.Sub(start))
 			}
 		}()
 	}

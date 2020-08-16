@@ -11,6 +11,8 @@ var IMAGE_PATH = path.Join("data", "images")
 
 var VOICE_PATH = path.Join("data", "voices")
 
+var VIDEO_PATH = path.Join("data", "videos")
+
 func PathExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil || os.IsExist(err)
@@ -25,7 +27,7 @@ func ReadAllText(path string) string {
 }
 
 func WriteAllText(path, text string) {
-	_ = ioutil.WriteFile(path, []byte(text), 0777)
+	_ = ioutil.WriteFile(path, []byte(text), 0644)
 }
 
 func Check(err error) {
