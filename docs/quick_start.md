@@ -28,8 +28,8 @@
 
 1.  双击`go-cqhttp.exe`此时将提示
 ```
-[WARNING]: 尝试加载配置文件 config.json 失败: 文件不存在
-[INFO]: 默认配置文件已生成,请编辑 config.json 后重启程序.
+[WARNING]: 尝试加载配置文件 config.hjson 失败: 文件不存在
+[INFO]: 默认配置文件已生成,请编辑 config.hjson 后重启程序.
 ```
 2. 参照[config.md](https://github.com/Mrs4s/go-cqhttp/blob/master/docs/config.md)和你所用到的插件的 `README` 填入参数
 3. 再次双击`go-cqhttp.exe`
@@ -79,8 +79,8 @@ enable ws?(Y/n)
 2. `cd`到解压目录
 3. 输入 `./go-cqhttp`，`Enter`运行 ，此时将提示
 ```
-[WARNING]: 尝试加载配置文件 config.json 失败: 文件不存在
-[INFO]: 默认配置文件已生成,请编辑 config.json 后重启程序.
+[WARNING]: 尝试加载配置文件 config.hjson 失败: 文件不存在
+[INFO]: 默认配置文件已生成,请编辑 config.hjson 后重启程序.
 ```
 
 4. 参照[config.md](https://github.com/Mrs4s/go-cqhttp/blob/master/docs/config.md)和你所用到的插件的 `README` 填入参数
@@ -103,7 +103,17 @@ enable ws?(Y/n)
 
 如果出现`{"data":{"message_id":balabala},"retcode":0,"status":"ok"}`则证明已经成功配置HTTP
 
+*注：请 连 中括号 也替换掉，就像这样：*`http://127.0.0.1:5700/send_private_msg?user_id=10001&message=ffeecoishp`
+
 # 进阶指南
+
+## 跳过启动的五秒延时
+
+使用命令行参数 `faststart`即可跳过启动的五秒钟延时，例如
+
+```
+.\go-cqhttp.exe faststart
+```
 
 ## 如何自己构建
 
@@ -117,7 +127,29 @@ enable ws?(Y/n)
 
 *注：可以使用*`go env -w GOPROXY=https://goproxy.cn,direct`*来加速国内依赖安装速度*
 
-*注：此时构建后的文件名为*`main`(Linux)或`main.exe`(Windows)
+## 更新
 
+### 方法一
 
+从[release](https://github.com/Mrs4s/go-cqhttp/releases)界面下载最新版本的go-cqhttp
+并替换之前的版本
 
+### 方法二
+
+使用更新参数，在命令行中打开go-cqhttp所在目录
+#### windows
+输入指令
+`go-cqhttp.exe update`
+
+如果在国内连接github下载速度可能很慢，可以使用镜像源下载
+
+`go-cqhttp.exe update https://github.rc1844.workers.dev`
+
+几个可用的镜像源
+- `https://hub.fastgit.org`
+- `https://github.com.cnpmjs.org`
+- `https://github.bajins.com`
+- `https://github.rc1844.workers.dev`
+
+#### linux
+方法与windows基本一致，将 `go-cqhttp.exe` 替换为 `./go-cqhttp`即可
